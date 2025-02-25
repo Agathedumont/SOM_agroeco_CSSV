@@ -1,0 +1,98 @@
+---
+title: "Landscape variables selection"
+author: "Agathe Dumont"
+output: html_document
+---
+# Data 
+```{r}
+# raw data
+data_2017 =  readRDS(file = data_path_land2017)
+data_2017$rowname_50 <- gsub(" \\d{4}-\\d{2}-\\d{2}", "", data_2017$rowname_50)
+data_2020 = readRDS(file = data_path_land2020)
+# combine 2017 and 2020 landscape data
+data_som = data_2020 %>%
+  left_join(data_2017, join_by("code_parcelle" == "rowname_50")) %>%
+  select(-code_parcelle)
+
+# data for visualization and clustering results
+df_viz = data_som %>%
+  mutate(obsID = row_number())
+
+# Final data for som analysis, center and scale
+data_som_cr = scale(data_som, center = T, scale = T) 
+```
+
+# SOM
+```{r}
+SOM_model = SOM_training(data_som_cr, r = 15000) # train SOM
+plot(SOM_model, type = "changes", main = "rlen=300") # check convergence 
+```
+
+# SOM clustering
+```{r}
+# plot to choose the k
+aweSOMscreeplot(som = SOM_model,
+                method = "hierarchical",
+                nclass = 6) 
+
+# som clustering with hclust
+som_clust = SOM_clustering(SOM_model = SOM_model)
+
+clustsom_inflexion = hclust_somvector(
+  cluster_hclust = som_clust,
+  k = 6 ,
+  SOM_model = SOM_model,
+  df = df_viz
+)
+
+# cluster vector
+cluster_inflexion = clustsom_inflexion$data_vis$cluster.Ward
+```
+
+# Variable selection
+```{r}
+n = 5000  # Number of iterations
+# # Run Recursive Feature Elimination (RFE) 5000 times
+# REFK6 <- lapply(1:n, function(x) {
+#   print(x)  # Print the current iteration
+#   RFE(x = data_som, y = cluster_inflexion)  # Apply RFE on df and cluster_inflexion
+# })
+#saveRDS(REFK6,file = "output/5000RFE_landscape.RDS")
+```
+
+# Results for 10 first variables selected 
+```{r}
+REFK6 = readRDS(file = "output/5000RFE_landscape.RDS")
+# get va runk for each RFE runs
+getvarank_runs = lapply(1:n, function(i) {  
+  get_va_rank(i = i, x = data_som, RFE = REFK6)
+})
+
+tab = variables_ranking_tab(get_va_rank_res = getvarank_runs)
+tab10 = tab[1:10,]
+```
+
+# Result plot
+```{r warning=FALSE}
+# Create a bar plot to visualize variable importance based on mean rank
+ggplot(tab10, aes(x = reorder(vaname, -meanrank), y = meanrank)) +
+  geom_bar(stat = "identity") +  # Create bars with heights corresponding to mean ranks
+  coord_flip() +  # Flip axes for better readability
+  labs(
+    x = "Variables",  # X-axis label
+    y = "Mean ranks"  # Y-axis label
+  ) +
+  theme_minimal() +  # Use a clean minimal theme
+  theme(text = element_text(size = 20)) +  # Increase text size for readability
+  scale_y_continuous(
+    limits = c(0, 12),  # Set y-axis limits from 0 to 12
+    breaks = 1:10  # Define breaks on the y-axis from 1 to 10
+  )
+
+# Select the top-ranked variables from df based on tab$vaname
+df_select = data_som %>% select(tab10$vaname)
+
+# Plot a correlation matrix for the selected variables
+PerformanceAnalytics::chart.Correlation(R = as.matrix(df_select), pch = "+")
+```
+

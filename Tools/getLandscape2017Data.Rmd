@@ -1,0 +1,111 @@
+---
+title: "Get Côte d'Ivoire's landscape cover data in 2017"
+author: "Agathe Dumont"
+output: html_document
+---
+
+```{r}
+# data C4F
+C4F_data = readRDS(paste0("../",data_path))
+
+# Load Soil Occupancy Data (Shapefile)
+occup_soil = st_read(data_path_landCover2017)
+
+# Run the function to extract soil occupancy data within buffers (50m-300m-1000m)
+data_occupsoil_2017 = extract_data_occupsoil_2017(C4F_data,
+                                                  "longitude",
+                                                  "latitude",
+                                                  "code_parcelle",
+                                                  "date",
+                                                  occup_soil)
+
+# Extract buffer zones of different distances (50m, 300m, 1000m)
+intersection_50 = data_occupsoil_2017$buffer_50
+intersection_300 = data_occupsoil_2017$buffer_300
+intersection_1000 = data_occupsoil_2017$buffer_1000
+
+# Extract unique soil occupation codes from the 1000m buffer data
+code_sst = paste0("sst_", unique(intersection_1000$code_sst))
+id_sst = unique(data_occupsoil_2017_1000$code_sst)
+
+# Define land-use categories based on specific soil occupation codes
+f = code_sst[grep("sst_(11|12|13|14|15|16|17)", code_sst)]  # Forest-related
+b = code_sst[grep("sst_(22|23|24|25|26|27|31|32|33|41|42|43|61|62)", code_sst)]  # Barrier-related
+h = code_sst[grep("sst_(51|52)", code_sst)]  # Human-related
+ccc = code_sst[grep("sst_21", code_sst)]  # Cocoa/Coffee-related
+
+# ---- Processing for Buffer 1000m ----
+
+## Compute statistics by soil occupation type for the 1000m buffer
+stat_data_occupsoil_2017_1000 = stat_occup_soil(
+  uniqueID_plot_name = "codedate",
+  id_sst = id_sst,
+  d = 1000,
+  d_r = 0,
+  intersection_geom = data_occupsoil_2017_1000
+)
+
+## Aggregate statistics into broader land-use categories
+stat_res_data_occupsoil_2017_1000 = categorized_data_soil_occupency(
+  plot_soil_occupency = as.data.frame(stat_data_occupsoil_2017_1000),
+  forest = f,
+  barrier = b,
+  humain = h,
+  cacao_cafe = ccc,
+  dist = 1000
+)
+
+# ---- Processing for Buffer 300m ----
+
+## Compute statistics by soil occupation type for the 300m buffer
+stat_data_occupsoil_2017_300 = stat_occup_soil(
+  uniqueID_plot_name = "codedate",
+  id_sst = id_sst,
+  d = 300,
+  d_r = 0,
+  intersection_geom = data_occupsoil_2017_300
+)
+
+## Aggregate statistics into broader land-use categories
+stat_res_data_occupsoil_2017_300 = categorized_data_soil_occupency(
+  plot_soil_occupency = as.data.frame(stat_data_occupsoil_2017_300),
+  forest = f,
+  barrier = b,
+  humain = h,
+  cacao_cafe = ccc,
+  dist = 300
+)
+
+# ---- Processing for Buffer 50m ----
+
+## Compute statistics by soil occupation type for the 50m buffer
+stat_data_occupsoil_2017_50 = stat_occup_soil(
+  uniqueID_plot_name = "codedate",
+  id_sst = id_sst,
+  d = 50,
+  d_r = 0,
+  intersection_geom = data_occupsoil_2017_50
+)
+
+## Aggregate statistics into broader land-use categories
+stat_res_data_occupsoil_2017_50 = categorized_data_soil_occupency(
+  plot_soil_occupency = as.data.frame(stat_data_occupsoil_2017_50),
+  forest = f,
+  barrier = b,
+  humain = h,
+  cacao_cafe = ccc,
+  dist = 50
+)
+
+# ---- Merge Results from All Buffers ----
+
+# Join the datasets for different buffer sizes based on row names
+stat_res_data_occupsoil_2017_all =
+  full_join(x = stat_res_data_occupsoil_2017_50, y = stat_res_data_occupsoil_2017_300, join_by("rowname_50" == "rowname_300")) %>% 
+  full_join(stat_res_data_occupsoil_2017_1000, join_by("rowname_50" == "rowname_1000"))
+
+# Save the merged data as an RDS file
+saveRDS(object = stat_res_data_occupsoil_2017_all, file = "output/dataadd_soiloccup_ecam.RDS")
+
+```
+

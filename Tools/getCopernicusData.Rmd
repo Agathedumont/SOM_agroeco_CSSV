@@ -1,0 +1,311 @@
+---
+title: "Get online and free to use Copernicus data"
+author: "Agathe Dumont"
+output: html_document
+---
+Data source:
+https://cds.climate.copernicus.eu/cdsapp#!/dataset/sis-agrometeorological-indicators?tab=doc
+
+resolution : 0.1° x 0.1° (10 km environs), from 1979 to present
+
+Citation:
+Boogaard, H., Schubert, J., De Wit, A., Lazebnik, J., Hutjes, R., Van der Grijn, G., (2020): Agrometeorological indicators from 1979 to present derived from reanalysis. Copernicus Climate Change Service (C3S) Climate Data Store (CDS). (Accessed on DD-MMM-YYYY), 10.24381/cds.6c68c9bb
+DOI:10.24381/cds.6c68c9bb
+
+# Data
+```{r}
+# data C4F
+C4F_data = readRDS(paste0("../",data_path))
+# api copenricus data store
+wf_set_key(user = user_id, key = cds_key)
+
+# day, month, year
+una12= c("01","02","03","04","05","06","07","08","09","10","11","12")
+una31 = c(una12,as.character(seq(from = 13, to = 31, by = 1)))
+fichier_concat = "dataclim_2020212223_CI.nc"
+year = c("2018","2019","2020","2021","2022","2023")
+year_date = as.Date(c("01/01/18","01/01/19","01/01/20","01/01/21","01/01/22","01/01/23"), "%m/%d/%y")
+
+# CI box 
+zone = c(floor(max(C4F_data$latitude)) + 1, # zone max latitude
+         floor(min(C4F_data$longitude))-1, # zone min longitude
+         floor(min(C4F_data$latitude))-1, # zone min latitude
+         floor(max(C4F_data$longitude))+1 ) # zone max longitude
+
+```
+
+# Extract climat data from copernicus to your folder
+```{r eval=FALSE, include=FALSE}
+
+list_va_clim = c("2m_temperature","10m_wind_speed","precipitation_flux")
+va_humidity = "2m_relative_humidity"
+
+# For each year
+for(y in year) { # for year in the vector year
+  for(v in list_va_clim) # for each clim variable
+  extract_clim_va(
+    Va = v,
+    Year = y,
+    Month = una12,
+    download_path = path_data_raw_zip,
+    Stat = "24_hour_mean",
+    Day = una31,
+    Zone_chr = "CI",
+    Zone = zone,
+    user_id = user_id
+  )
+}
+
+  
+  extract_clim_va(
+    Va = "2m_relative_humidity",
+    Year = y,
+    Month = una12,
+    download_path = path_data_raw_zip,
+    Stat = "24_hour_mean",
+    Day = una31,
+    Zone_chr = "CI",
+    Zone = zone,
+    user_id = user_id,
+     Time = c("15_00")
+  )
+}
+
+```
+
+Attention : unzip the file by hand ...
+
+# Create a ncdf file
+```{r}
+
+# create ncdf file empty from an other
+dossier_nc  = "agrometeorological_copernicus_2018_2m_temperature_CI"
+dossier_path <- paste("../output",dossier_nc,sep = "")
+fichier_list = list.files(dossier_path)
+nc_file <- nc_open(paste(dossier_path,"/",fichier_list[1],sep = ""))
+temp_dim =  ncvar_get(nc_file,"time")
+
+## dimension 
+dim_state = list(
+lon_dim = 
+  ncdim_def(
+    nc_file$var[[1]]$dim[[1]]$name,
+    units = nc_file$var[[1]]$dim[[1]]$units,
+    nc_file$var[[1]]$dim[[1]]$vals
+  ),
+
+lat_dim = 
+  ncdim_def(
+    nc_file$var[[1]]$dim[[2]]$name,
+    units = nc_file$var[[1]]$dim[[2]]$units,
+    nc_file$var[[1]]$dim[[2]]$vals
+  ),
+
+time_dim = 
+  ncdim_def(
+    nc_file$var[[1]]$dim[[3]]$name,
+    units = nc_file$var[[1]]$dim[[3]]$units,
+    seq(from = temp_dim, to = temp_dim + sum(yearDays(year_date)) -1)
+  )
+)
+
+nc_close(nc_file)
+
+## get variables of ncdf files
+hum_15h_va = nc_var_def(path_data_raw, dossier_nc = "agrometeorological_copernicus_2018_2m_relative_humidity_15_00_CI")
+temp_va = nc_var_def(path_data_raw, dossier_nc = "agrometeorological_copernicus_2018_2m_temperature_CI")
+cloud_va = nc_var_def(path_data_raw, dossier_nc = "agrometeorological_copernicus_2018_10m_wind_speed_CI")
+wind_va = nc_var_def(path_data_raw, dossier_nc = "agrometeorological_copernicus_2018_cloud_cover_CI")
+prec_va = nc_var_def(path_data_raw, dossier_nc = "agrometeorological_copernicus_2018_precipitation_flux_CI")
+
+
+## create an ncdf file with all clim variables and all days
+new_ncdf = nc_create(
+  "../output/meteo_copernicus_download.nc",
+  vars = list(hum_9h_va,hum_15h_va,temp_va,cloud_va,wind_va,prec_va)
+)
+
+nc_close(new_ncdf)
+
+```
+
+# Concatenation
+```{r}
+# list of file to concat
+list_to_concat = grep("^agro",list.files("../output/"),value = T)
+
+# concat all the files on one ncdf file
+for (j in list_to_concat) {
+  va_concat_nc_function(
+    fichier_concat =  "../output/meteo_copernicus_download.nc",
+    Path_data_raw = "../output/",
+    fichiers_to_concat = j
+  )
+}
+```
+
+# Position of each observation in one grid cell
+```{r}
+# grid resolution
+resolution = 0.10
+
+# Take latitude and longitude 
+data_clim_concat = nc_open("../output/meteo_copernicus_download.nc")
+long = ncvar_get(data_clim_concat, "lon")
+lat = ncvar_get(data_clim_concat, "lat")
+nc_close(data_clim_concat)
+range_lon = range(long)
+range_lat = range(lat)
+
+#  Each plot is assigned to a grid cell. 
+cut_longitude = cut(
+  C4F_data$longitude,
+  breaks = seq(range_lon[1] - resolution / 2,
+               range_lon[2] + resolution / 2,
+               resolution)
+)
+
+cut_latitude = cut(
+  C4F_data$latitude,
+  breaks = seq(range_lat[1] - resolution / 2,
+               range_lat[2] + resolution /2,
+               resolution)
+)
+
+# center of the cell
+cut_longitude = as.character(cut_longitude)
+cut_longitude = unlist(strsplit(cut_longitude, ","))[c(T, F)]
+cut_longitude = as.numeric(sub("\\(", "", cut_longitude)) + resolution / 2
+cut_latitude = as.character(cut_latitude)
+cut_latitude = unlist(strsplit(cut_latitude, ","))[c(T, F)]
+cut_latitude = as.numeric(sub("\\(", "", cut_latitude)) + resolution / 2
+
+# Add variable to dataframe
+C4F_data$cut_lon = cut_longitude
+C4F_data$cut_lat = cut_latitude
+```
+
+# Get variable by year
+```{r}
+list_year = c(2018:2022)
+dataclimnc = nc_open("../output/meteo_copernicus_download.nc")
+nc_close(dataclimnc)
+list_va_clim = names(dataclimnc$var)
+
+by_years = lapply(list_year, function(y) {
+  byyear = lapply(list_va_clim, function(x) {
+    add_vaclim_to_dataframe_byyear(
+      va = x,
+      data = C4F_data,
+      path_data_clim = "../output/meteo_copernicus_download.nc",
+      absolute_time = T,
+      year = y
+    )
+  })
+  df_byyear = base::do.call(cbind, byyear)
+})
+
+df_byyears = base::do.call(cbind, by_years)
+```
+
+# Get variable by saison
+```{r}
+## dry large
+drylarge_years = lapply(list_year, function(y) {
+  drylarge_year = lapply(list_va_clim, function(x) {
+    add_vaclim_to_dataframe_byseason(
+      data = C4F_data,
+      path_data_clim = "../output/meteo_copernicus_download.nc",
+      va = x,
+      month_s = c(12, 1, 2, 3, 4),
+      season_name = "drylarge",
+      absolute_time = T,
+      year = y
+    )
+    
+  })
+  df_drylargeyears = base::do.call(cbind, drylarge_year)
+})
+
+df_drylarge_years =  base::do.call(cbind, drylarge_years)
+
+## dry small
+drysmall_years = lapply(list_year, function(y) {
+  drysmall_year = lapply(list_va_clim, function(x) {
+    add_vaclim_to_dataframe_byseason(
+      data = C4F_data,
+      path_data_clim = "../output/meteo_copernicus_download.nc",
+      va = x,
+      month_s = c(8,9),
+      season_name = "drysmall",
+      absolute_time = T,
+      year = y
+    )
+    
+  })
+  df_drysmallyears = base::do.call(cbind, drysmall_year)
+})
+
+df_drysmall_years =  base::do.call(cbind, drysmall_years)
+
+## rain large
+rainlarge_years = lapply(list_year, function(y) {
+  rainlarge_year = lapply(list_va_clim, function(x) {
+    add_vaclim_to_dataframe_byseason(
+      data = C4F_data,
+      path_data_clim = "../output/meteo_copernicus_download.nc",
+      va = x,
+      month_s = c(5,6,7),
+      season_name = "rainlarge",
+      absolute_time = T,
+      year = y
+    )
+    
+  })
+  df_rainlargeyears = base::do.call(cbind, rainlarge_year)
+})
+
+df_rainlarge_years =  base::do.call(cbind, rainlarge_years)
+
+## rain small
+rainsmall_years = lapply(list_year, function(y) {
+  rainsmall_year = lapply(list_va_clim, function(x) {
+    add_vaclim_to_dataframe_byseason(
+      data = C4F_data              ,
+      path_data_clim = "../output/meteo_copernicus_download.nc",
+      va = x,
+      month_s = c(10,11),
+      season_name = "rainsmall",
+      absolute_time = T,
+      year = y
+    )
+    
+  })
+  df_rainsmallyears = base::do.call(cbind, rainsmall_year)
+})
+
+df_rainsmall_years =  base::do.call(cbind, rainsmall_years)
+```
+
+# Create data set
+```{r}
+data_meteo_absolute = cbind(
+  df_byyears,
+  df_drylarge_years,
+  df_drysmall_years,
+  df_rainlarge_years,
+  df_rainsmall_years
+)
+
+data_meteo_absolute = as.data.frame(data_meteo_absolute)
+
+data_meteo_absolute$latitude = C4F_data$latitude
+data_meteo_absolute$longitude = C4F_data$longitude
+data_meteo_absolute$date = C4F_data$date
+data_meteo_absolute$code_parcelle = C4F_data$code_parcelle
+```
+
+# Save data set
+```{r}
+saveRDS(data_meteo_absolute,file = "../output/dataadd_meteoabs.RDS")
+```

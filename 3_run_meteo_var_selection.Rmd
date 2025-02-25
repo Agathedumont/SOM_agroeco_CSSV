@@ -1,0 +1,171 @@
+---
+title: "Meteo variables selection"
+author: "Agathe Dumont"
+output: html_document
+---
+
+# Data 
+```{r}
+# raw data
+df = readRDS(file = data_path_meteo)
+df = tidyr::unnest(df,cols = colnames(df))
+
+# data for visualization and clustering results 
+df_viz = df %>% 
+  mutate(obsID = row_number())
+
+# data for SOM analysis
+data_som = df %>%
+# delete all variable that are not useful for the analysis
+  select(contains("lag"))
+
+data_som = tidyr::unnest(data_som,cols = colnames(data_som))
+
+# Center and scale data for analysis
+data_test_cr = data_som %>% 
+  scale(center = T,scale = T)
+# After center and scale you can have missing when variables always = 0  
+
+# Delete this variables because not relevant
+missing_values = colSums(is.na(data_test_cr))
+name_missing_values = names(missing_values[missing_values > 0])
+
+data_som =  data_som %>%
+  select(-all_of(name_missing_values))
+
+# Final data for som analysis, center and scale
+data_som_cr = data_som %>%
+  scale(center = T,scale = T)
+```
+
+
+# SOM
+
+```{r eval=FALSE, include=FALSE}
+#SOM_model = SOM_training(data_som_cr, r = 15000) # train SOM
+#plot(SOM_model, type = "changes", main = "rlen=300") # check convergence 
+#saveRDS(SOM_model, "output/SOM_meteo.RDS")
+```
+
+# SOM clustering
+```{r}
+# SOM 
+SOM_model = readRDS("output/SOM_meteo.RDS")
+
+# plot to choose the k
+aweSOMscreeplot(som = SOM_model,
+                method = "hierarchical",
+                nclass = 6) 
+
+# som clustering with hclust
+som_clust = SOM_clustering(SOM_model = SOM_model)
+
+clustsom_inflexion = hclust_somvector(
+  cluster_hclust = som_clust,
+  k = 6 ,
+  SOM_model = SOM_model,
+  df = df_viz
+)
+
+# cluster vector
+cluster_inflexion = clustsom_inflexion$data_vis
+```
+
+# Variable selection 
+
+```{r}
+y = as.factor(cluster_inflexion$cluster.Ward)
+x = data_som
+```
+
+```{r eval=FALSE, include=FALSE}
+# Paralelization of the code 
+n=5000 # Number of iterations
+# Run Recursive Feature Elimination (RFE) 5000 times
+# RFE5000times = myRFE_par(x = x, y = y, n = 5000)
+# saveRDS(RFE5000times, file = "output/5000RFE_meteo.RDS")
+```
+
+```{r }
+RFEK6 = readRDS(file = "output/5000RFE_meteo.RDS")
+```
+
+# Results for 10 first variables selected 
+```{r}
+RFE = RFEK6
+
+# get va runk for each RFE runs
+getvarank_runs = lapply(1:n, function(i) {
+  get_va_rank(i = i,x = x,RFE = RFE)
+})
+
+tab = variables_ranking_tab(get_va_rank_res = getvarank_runs)
+tab10 = tab[1:10,]
+```
+
+# Result plot
+```{r}
+rename_variables <- function(var) {
+  
+  # Metrics
+  var <- gsub("mean", "Mean", var)
+  var <- gsub("med", "Median", var)
+  var <- gsub("max", "Max", var)
+  var <- gsub("min", "Min", var)
+  var <- gsub("var", "Variance", var)
+  var <- gsub("range", "Range", var)
+
+  # Meteorological variables
+  var <- gsub("Temperature_Air_2m_Mean_24h", "temp.", var)
+  var <- gsub("Precipitation_Flux", "precip.", var)
+  
+  # Remove unnecessary suffixes for better readability
+  var <- gsub("_byseason", "", var)
+  var <- gsub("_absolute", "", var)
+  var <- gsub("_lag0", "", var)
+  var <- gsub("_byyear", " (", var)
+  
+  # Replace specific terms with season descriptions
+  var <- gsub("rainsmall", "(Short rainy s. ", var)
+  var <- gsub("rainlarge", "(Main rainy s. ", var)
+  var <- gsub("drylarge", "(Main dry s. ", var)
+  var <- gsub("drysmall", "(Short dry s. ", var)
+
+  # Replace remaining underscores with spaces and add closing parenthesis
+  var <- gsub("_", " ", var)
+  var = paste0(var, ")")
+  
+  return(var)
+}
+
+# Rename variables
+renamed_variables <- sapply(tab10$vaname, rename_variables)
+
+# Store renamed variables
+tab10$vecname = renamed_variables
+
+```
+
+```{r warning=FALSE}
+# Create a bar plot to visualize variable importance based on mean rank
+ggplot(tab10, aes(x = reorder(vecname, -meanrank), y = meanrank)) +
+  geom_bar(stat = "identity") +  # Create bars with heights corresponding to mean ranks
+  coord_flip() +  # Flip axes for better readability
+  labs(
+    x = "Variables",  # X-axis label
+    y = "Mean ranks"  # Y-axis label
+  ) +
+  theme_minimal() +  # Use a clean minimal theme
+  theme(text = element_text(size = 20)) +  # Increase text size for readability
+  scale_y_continuous(
+    limits = c(0, 12),  # Set y-axis limits from 0 to 12
+    breaks = 1:10  # Define breaks on the y-axis from 1 to 10
+  )
+                               
+# Select the top-ranked variables from df based on tab$vaname
+df_select = data_som %>% select(tab10$vaname)
+
+# Plot a correlation matrix for the selected variables
+PerformanceAnalytics::chart.Correlation(R = as.matrix(df_select), pch = "+")
+```
+

@@ -1,0 +1,66 @@
+---
+title: "Starter"
+author: "Agathe Dumont"
+output: html_document
+---
+
+# Packages
+```{r}
+library(kohonen)
+library(dendextend)
+library(tibble)
+library(ggplot2)
+library(ggpubr)
+library(VSURF)
+library(dplyr)
+library(randomForest)
+library(aweSOM)
+library(corrplot)
+library(Hmisc)
+library(caret)
+library(leaflet)
+library(ggalt)
+library(parallel)
+library(foreach)
+library(doParallel)
+library(tidyr)
+library(readr)
+library(lubridate)
+library(RColorBrewer)
+library(ggdendro)
+library(fastDummies)
+library(rstatix)
+library(stats)
+library(dynamicTreeCut)
+library(FactoMineR) # Pour l'ACP
+library(factoextra) # Pour les visualisations
+library(rcompanion)
+library(multcompView)
+library(sf)
+library(viridis)
+library(ecmwfr)
+library(ncdf4) 
+library(gplots)
+library(readxl)
+library(tidyverse)
+library(terra)
+library(raster)
+library(exactextractr)
+```
+
+# load my functions
+```{r}
+devtools::load_all(path = here::here())
+```
+
+# Private path
+```{r}
+data_path = Sys.getenv("DATA_PATH")
+data_path_land2017 = Sys.getenv("DATA_PATH_LAND2017")
+data_path_land2020 = Sys.getenv("DATA_PATH_LAND2020")
+data_path_meteo = Sys.getenv("DATA_PATH_METEO")
+cds_key = Sys.getenv("CDS_KEY")
+user_id = Sys.getenv("COPERNICUS_USER_ID")
+data_path_landCover2017 = Sys.getenv("DATA_PATH_LANDCOVER2017")
+```
+

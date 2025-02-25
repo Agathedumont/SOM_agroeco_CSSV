@@ -1,0 +1,276 @@
+---
+title: "SOM agroecosys factors"
+author: "Agathe Dumont"
+output: html_document
+---
+
+# data
+```{r warning=FALSE}
+# row data 
+data_som_noselect = readRDS(file = data_path)
+
+# data for visualization and clustering results
+df_viz = data_som_noselect %>%
+  mutate(obsID = row_number())
+
+# agroecosystem selected variables  
+vec_selected = c(
+  # Disease
+  "Prevalence CSSV (%)",
+  # soil variables  
+  "Soil organic carbon (g/kg)",  
+  "Bulk density (kg/m3)",  
+  "pH",  
+
+  # meteorological variables  
+  "Range temp. (Short rainy s. 2020, °C)",  
+  "Mean precip. (Short rainy s. 2019, mm/day)",  
+  "Max precip. (Short dry s. 2019, mm/day)",  
+
+  # landscape variables  
+  "Cacao/Coffee in 2017 at 1000m (%)",  
+  "Cacao in 2020 at 50m (%)",  
+  "Cacao in 2020 at 1000m (%)",  
+
+  # agroforestry variables  
+  "Stand basal area (m2/ha)",  
+  "Host trees basal area (m2/ha)"  
+)
+
+# data for SOM analysis
+data_som = data_som_noselect %>% select(vec_selected)
+
+# Final data for som analysis, center and scale
+data_som_cr = scale(data_som, center = TRUE, scale = TRUE)
+
+# Check correlation
+PerformanceAnalytics::chart.Correlation(R = data_som_cr, histogram=TRUE, pch=19) 
+```
+
+# SOM 
+```{r}
+SOM_model = SOM_training(data_som_cr, r = 15000) # train SOM
+plot(SOM_model, type = "changes", main = "rlen=300") # check convergence
+```
+
+# SOM clustering
+```{r}
+# plot to choose the k
+aweSOMscreeplot(som = SOM_model,
+                method = "hierarchical",
+                nclass = 5) 
+
+# som clustering with hclust
+som_clust = SOM_clustering(SOM_model = SOM_model)
+
+clustsom_inflexion = hclust_somvector(
+  cluster_hclust = som_clust,
+  k = 5 ,
+  SOM_model = SOM_model,
+  df = df_viz
+)
+
+# cluster vector
+cluster_inflexion = clustsom_inflexion$data_vis
+```
+
+# Reorder clusters from low CSSV to high CSSV
+```{r}
+# Compute the mean "Prevalence CSSV" for each cluster
+cluster_means <- aggregate(`Prevalence CSSV (%)` ~ cluster.Ward, data = cluster_inflexion, mean)
+
+# Sort clusters in ascending order based on the mean prevalence
+cluster_means <- cluster_means[order(cluster_means$`Prevalence CSSV`), ]
+
+# Assign labels in increasing order of prevalence
+cluster_means$cluster_label <- 1:nrow(cluster_means)
+
+# Merge with the original dataset to apply the new labels
+cluster_inflexion <- merge(
+  cluster_inflexion, 
+  cluster_means[, c("cluster.Ward", "cluster_label")],
+  by = "cluster.Ward"
+)
+
+# Update the cluster column with the new labels
+cluster_inflexion$cluster.Ward <- as.factor(cluster_inflexion$cluster_label)
+
+# Remove the temporary column if needed
+cluster_inflexion$cluster_label <- NULL
+
+# Colors
+set_colors = viridis(5)
+
+```
+
+# Number of clusters
+```{r}
+cluster_inflexion %>% group_by(cluster.Ward) %>% summarise(n())
+```
+
+# Spatialisation des profiles
+
+```{r warning=FALSE}
+# Map data - National boundaries  
+df_CI <- st_read("../../Outils/Cartographie/carte_study_site_C4F/CIV_adm0.shp")  
+
+# Select one random observation per cluster   
+data_C4Funique <- df_viz %>%
+  group_by(cluster) %>%
+  sample_n(1) %>%
+  ungroup()
+
+# Assign unique IDs to each selected observation  
+data_C4Funique$id = 1:nrow(data_C4Funique)
+
+# Generate cluster labels  
+cluster_label = 1:nrow(cluster_means)
+
+# Create individual maps for each cluster  
+maps_color = lapply(cluster_label, function(x) {
+  data_plotmap = cluster_inflexion %>% filter(cluster.Ward == x)
+  plot_cluster_loc(
+    data = data_plotmap,
+    colclust = set_colors[which(cluster_label == x)],
+    data_unique = data_C4Funique,
+    carte = df_CI
+  )
+})
+
+# Arrange the maps in a grid layout  
+ggarrange(plotlist = maps_color, ncol = 2, nrow = 3, 
+          legend = "right", 
+          labels = paste0("Profile ", cluster_label))
+
+```
+
+# Date collecte CSSV dans les groupes 
+
+```{r}
+unique(cluster_inflexion %>% filter(cluster.Ward == 1) %>% select(year_prospection))
+unique(cluster_inflexion %>% filter(cluster.Ward == 2) %>% select(year_prospection))
+unique(cluster_inflexion %>% filter(cluster.Ward == 3) %>% select(year_prospection))
+unique(cluster_inflexion %>% filter(cluster.Ward == 4) %>% select(year_prospection))
+unique(cluster_inflexion %>% filter(cluster.Ward == 5) %>% select(year_prospection))
+```
+
+# Boxplot 
+```{r warning=FALSE}
+
+cluster_inflexion_bis = cluster_inflexion
+# change cluster name for the paper
+cluster_inflexion_bis$cluster.Ward = ifelse(
+  cluster_inflexion_bis$cluster.Ward == 1,
+  "1 (10 plots)",
+  ifelse(
+    cluster_inflexion_bis$cluster.Ward == 2,
+    "2 (33 plots)",
+    ifelse(
+      cluster_inflexion_bis$cluster.Ward == 3,
+      "3 (47 plots)",
+      ifelse(
+        cluster_inflexion_bis$cluster.Ward == 4,
+        "4 (40 plots)",
+        "5 (20 plots)"
+      )
+    )
+  )
+)
+
+# Apply the 'boxplotClusterFunction' to each variable in the 'data_som' dataframe
+boxplot_agrova = lapply(1:length(colnames(data_som)), function(i) {
+  # Generate a boxplot for each variable based on cluster grouping
+  boxplotClusterFunction(
+    cluster.Ward = "cluster.Ward",
+    # Column name indicating clusters in the dataframe
+    color_cluster = set_colors,
+    # Color palette for clusters
+    df = cluster_inflexion_bis,
+    # Dataframe containing the data to analyze
+    va = colnames(data_som)[i],
+    # Variable name to be plotted in the boxplot
+    N_correction = choose(nrow(cluster_means), 2) * ncol(data_som),
+    # Statistical correction factor
+    correction = TRUE  # Enables correction for multiple comparisons
+  )
+})
+
+plot = ggarrange(plotlist = boxplot_agrova,
+          common.legend = TRUE,
+          ncol = 3,nrow = 4,
+          widths = 1,heights = 10)
+plot
+```
+# Wilcoxon test
+```{r}
+# Create a copy of 'cluster_inflexion' to avoid modifying the original dataset
+cluster_inflexion_bis2 = cluster_inflexion
+
+# Remove any non-alphanumeric characters from column names
+colnames(cluster_inflexion_bis2) <- gsub("[^a-zA-Z0-9]", "", colnames(cluster_inflexion_bis2))
+
+# Compute the correction factor for multiple comparisons
+n = choose(nrow(cluster_means), 2) * ncol(data_som)
+
+# Define the variable representing cluster membership
+va_cluster = "clusterWard"
+
+# Clean column names of 'data_som' by removing special characters
+va_vec = gsub("[^a-zA-Z0-9]", "", colnames(data_som))
+
+# Initialize a list to store the results of the comparisons
+comp_k = list(NA)
+
+# Perform pairwise comparisons for each variable
+for (i in 1:length(va_vec)) {
+  va = va_vec[i]  # Select the current variable
+  
+  # Define the formula for the statistical test (e.g., variable ~ clusterWard)
+  formula = as.formula(paste0(va, " ~ ", va_cluster))
+  
+  # Apply the Wilcoxon test to compare distributions across clusters
+  comp_k[[i]] = compare_means(
+    formula,
+    data = cluster_inflexion_bis2,  # Dataset with cleaned column names
+    method = "wilcox.test",  # Use the Wilcoxon test for comparisons
+    symnum.args = list(
+      cutpoints = c(0, 0.001 / n, 0.01 / n, 0.05 / n, Inf),  # Adjust significance thresholds
+      symbols = c("***", "**", "*", "ns")  # Define significance symbols
+    ),
+    pairwise.comparisons = FALSE,  # Perform group-wise rather than pairwise comparisons
+    p.adjust.method = "none"  # No automatic p-value adjustment (handled manually)
+  )
+}
+
+# Combine all test results into a single dataframe
+df_comp_k = bind_rows(comp_k)
+
+# Mean trend 
+cluster_inflexion_bis2 %>% group_by(clusterWard) %>% summarise(across(all_of(va_vec), mean, na.rm = TRUE))
+  
+# Cluster 1 compare to the other
+df_comp_k  %>% filter(group1==1)
+
+# Cluster 2 compare to the other
+df_comp_k  %>% filter(group1==2)
+
+# Cluster 3 compare to the other
+df_comp_k  %>% filter(group1==3)
+
+# Cluster 4 compare to the other
+df_comp_k  %>% filter(group1==4)
+
+# Cluster 5 compare to the other
+df_comp_k  %>% filter(group1==5)
+
+```
+
+# Hierarchical clustering of variables 
+```{r}
+# distance en terme de correlation 
+cor_matrix <- cor(getCodes(SOM_model))
+dist_matrix <- as.dist(1 - abs(cor_matrix))  
+hc <- hclust(dist_matrix, method = "ward.D2")  
+d = fviz_dend(hc, show_labels = TRUE,lwd = 0.5,labels_track_height=TRUE,main = "",horiz = TRUE)
+d
+```

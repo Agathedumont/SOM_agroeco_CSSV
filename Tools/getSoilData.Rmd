@@ -1,0 +1,78 @@
+---
+title: "Get online and free to use soil data"
+output: html_document
+---
+
+# Data
+
+# Dowload the data
+https://data.isric.org/geonetwork/srv/eng/catalog.search#/search?resultType=details&sortBy=relevance&any=Africa%20Soil%20Profiles%20Database&from=1&to=100&fast=index&_content_type=json
+
+* Africa SoilGrids - Bulk density (BD) :  kg / cubic-meter (kg/m3) at depth 0-5 cm
+https://files.isric.org/public/afsis250m/af_BLD_T__M_sd1_250m.tif
+folder : af_BLD_T__M_sd1_250m.tif
+* Africa SoilGrids - Soil pH in H2O : in pH x 10 at depth 0-5 cm (to convert to pH values divide by 10) 
+https://files.isric.org/public/afsis250m/af_PHIHOX_T__M_sd1_250m.tif
+foler : af_PHIHOX_T__M_sd1_250m.tif
+* Africa SoilGrids - Soil organic carbon (SOC) : in g/kg at depth 0-5 cm
+https://files.isric.org/public/afsis250m/af_ORCDRC_T__M_sd1_250m.tif :  in cmolc/kg (fine earth) at depth 0-5 cm
+foler: af_ORCDRC_T__M_sd1_250m.tif
+* Africa SoilGrids - Sum of exchangeable bases
+
+# Import data to R
+```{r}
+BD = rast("../output/af_BLD_T__M_sd1_250m.tif")
+PH = rast("../output/af_PHIHOX_T__M_sd1_250m.tif")
+SOC = rast("../output/af_ORCDRC_T__M_sd1_250m.tif")
+EXBX = rast("../output/af_EXBX_T__M_sd1_250m.tif")
+```
+
+# Reprojection in latitude and longitude 
+```{r}
+BD_latlong = project(x = BD,  y = "+proj=longlat")
+writeRaster(BD_latlong, paste("../output/BD_latlong.tif"))
+
+PH_latlong = project(x = PH,  y = "+proj=longlat")
+writeRaster(PH_latlong, paste("../output/PH_latlong.tif"))
+
+SOC_latlong = project(x = SOC,  y = "+proj=longlat")
+writeRaster(SOC_latlong, paste("../output/SOC_latlong.tif"))
+
+EXBX_latlong = project(x = EXBX,  y = "+proj=longlat")
+writeRaster(EXBX_latlong, paste("../output/EXBX_latlong.tif"))
+```
+
+# Data soil
+```{r}
+BD_latlong = rast("Data/BD_latlong.tif")
+PH_latlong = rast("Data/PH_latlong.tif")
+SOC_latlong = rast("Data/SOC_latlong.tif")
+EXBX_latlong = rast("Data/EXBX_latlong.tif")
+```
+
+# Add soil variable to data
+```{r}
+C4F_data = readRDS(paste0("../",data_path))
+
+# Latitude and longitude of the plot 
+xy = cbind(lon = C4F_data$longitude, lat = C4F_data$latitude)
+
+# get the soil variables from the raster and add new variables to the data
+ID_raster_BD = cellFromXY(BD_latlong, xy)
+C4F_data$bd_soilgrid = extract(BD_latlong,ID_raster_BD)[,1]
+
+ID_raster_PH = cellFromXY(PH_latlong, xy)
+C4F_data$ph_soilgrid = extract(PH_latlong,ID_raster_PH)[,1]
+
+ID_raster_SOC = cellFromXY(SOC_latlong, xy)
+C4F_data$soc_soilgrid = extract(SOC_latlong,ID_raster_SOC)[,1]
+
+ID_raster_EXBX = cellFromXY(EXBX_latlong, xy)
+C4F_data$exbx_soilgrid = extract(EXBX_latlong,ID_raster_EXBX)[,1]
+```
+
+# Save
+```{r}
+saveRDS(data, file = "../output/dataadd_soil.RDS")
+```
+

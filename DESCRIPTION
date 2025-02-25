@@ -1,0 +1,15 @@
+Package: R project for paper SOM - cacao swollen shoot virus
+Type: Package
+Title: Associations between scale-dependent agroecosystem factors and cocoa swollen shoot virus prevalence 
+Version: 2.0
+Authors@R: c(
+    person(given   = "Agathe",
+           family  = "Dumont",
+           role    = c("aut", "cre", "cph"),
+           email   = "agathe.dumontpro@gmail.com",
+           comment = c(ORCID = "{{0009-0000-1520-9016}}")))
+Description: 
+URL:
+BugReports: 
+License: {{license}}
+Encoding: UTF-8

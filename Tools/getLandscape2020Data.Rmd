@@ -1,0 +1,52 @@
+---
+title: "Get online and free access to Côte d'Ivoire's landscape cover data for 2020."
+author: "Agathe Dumont"
+output: html_document
+---
+
+Africa Geoportal : https://bit.ly/carte-ci-2020
+Download data : https://africageoportal.maps.arcgis.com/home/item.html?id=46348aa12a3d46e592584737de64f72a
+
+```{r}
+occup_soil_allclass = raster("../output/ocs2020.tif") # Load land cover raster for 2020
+
+LCcodes = 1:23 # Original classification codes
+
+# New classification:
+# 1: Forest
+# 2: Other
+# 3: Cocoa
+# 4: Human settlements
+
+# Reclassification: Assign new classes based on the original land cover codes
+newclas <- c(rep(1, 7),  # First 7 categories → Forest (1)
+             2,          # 8th category → Other (2)
+             3,          # 9th category → Cocoa (3)
+             rep(2, 6),  # Next 6 categories → Other (2)
+             rep(2, 5),  # Next 5 categories → Other (2)
+             4,          # Second-to-last category → Human settlements (4)
+             2, 2)       # Last two categories → Other (2)
+
+# Create a lookup table for reclassification
+lookup <- data.frame(LCcodes, newclas)
+
+# Reclassify the raster using the lookup table
+occup_soil_rc = classify(rast(occup_soil_allclass), lookup)
+
+# Load the dataset containing the data points
+C4F_data = readRDS(paste0("../", data_path))
+
+# Extract soil occupancy percentages within different buffer zones
+perc_soil_occup_2020 = extract_raster_data(
+  data_point = occup_soil_rc,  # Pass the reclassified raster data
+  occup_soil = occup_soil,     # Original land cover raster (used for coordinate transformation)
+  lon = "longitude",           # Longitude column name (not used in the function)
+  lat = "latitude",            # Latitude column name (not used in the function)
+  code = "code_parcelle",      # Column name for parcel code
+  date = "date"                # Column name for date
+)
+
+# Save the extracted data as an RDS file
+saveRDS(perc_soil_occup_2020, "../output/add_soil_occupency_2020_buffer_C4F.RDS")
+```
+
